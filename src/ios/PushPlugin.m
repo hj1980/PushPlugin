@@ -158,52 +158,45 @@
 
     if (notificationMessage && self.callback)
     {
-        NSMutableString *jsonStr = [NSMutableString stringWithString:@"{"];
-
-        [self parseDictionary:notificationMessage intoJSON:jsonStr];
-
-        if (isInline)
-        {
-            [jsonStr appendFormat:@"foreground:\"%d\"", 1];
+        NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
+        dict[@"event"] = @"message";
+        dict[@"payload"] = notificationMessage;
+        dict[@"foreground"] = [NSNumber numberWithBool:isInline];
+        if (isInline) {
             isInline = NO;
         }
-		else
-            [jsonStr appendFormat:@"foreground:\"%d\"", 0];
-        
-        [jsonStr appendString:@"}"];
-
-        NSLog(@"Msg: %@", jsonStr);
-
-        NSString * jsCallBack = [NSString stringWithFormat:@"%@(%@);", self.callback, jsonStr];
+        NSString * jsCallBack = [NSString stringWithFormat:@"%@(%@);", self.callback, [PushPlugin JSONRepresentation:dict]];
         [self.webView stringByEvaluatingJavaScriptFromString:jsCallBack];
         
         self.notificationMessage = nil;
     }
 }
 
-// reentrant method to drill down and surface all sub-dictionaries' key/value pairs into the top level json
--(void)parseDictionary:(NSDictionary *)inDictionary intoJSON:(NSMutableString *)jsonString
-{
-    NSArray         *keys = [inDictionary allKeys];
-    NSString        *key;
++ (NSString*)JSONRepresentation:(id)obj {
+    NSString *result = nil;
     
-    for (key in keys)
-    {
-        id thisObject = [inDictionary objectForKey:key];
-    
-        if ([thisObject isKindOfClass:[NSDictionary class]])
-            [self parseDictionary:thisObject intoJSON:jsonString];
-        else if ([thisObject isKindOfClass:[NSString class]])
-             [jsonString appendFormat:@"\"%@\":\"%@\",",
-              key,
-              [[[[inDictionary objectForKey:key]
-                stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
-                 stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]
-                 stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"]];
-        else {
-            [jsonString appendFormat:@"\"%@\":\"%@\",", key, [inDictionary objectForKey:key]];
-        }
+    NSData *jsonData = [self JSONDataRepresentation:obj];
+    if (nil != jsonData) {
+        result = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
     }
+    
+    return result;
+}
+
++(NSData*)JSONDataRepresentation:(id)obj {
+    NSError *err = nil;
+    NSData *jsonData = nil;
+    
+    if (nil != obj) {
+        NSJSONWritingOptions options = 0;
+        jsonData = [NSJSONSerialization dataWithJSONObject:obj
+                                                   options:options
+                                                     error:&err
+                    ];
+        
+        
+    }
+    return  jsonData;
 }
 
 - (void)setApplicationIconBadgeNumber:(CDVInvokedUrlCommand *)command {
