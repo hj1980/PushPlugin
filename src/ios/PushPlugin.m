@@ -55,44 +55,6 @@
     } else {
         [self preiOS8Register:options];
     }
-
-    UIRemoteNotificationType notificationTypes = UIRemoteNotificationTypeNone;
-    id badgeArg = [options objectForKey:@"badge"];
-    id soundArg = [options objectForKey:@"sound"];
-    id alertArg = [options objectForKey:@"alert"];
-    
-    if ([badgeArg isKindOfClass:[NSString class]])
-    {
-        if ([badgeArg isEqualToString:@"true"])
-            notificationTypes |= UIRemoteNotificationTypeBadge;
-    }
-    else if ([badgeArg boolValue])
-        notificationTypes |= UIRemoteNotificationTypeBadge;
-    
-    if ([soundArg isKindOfClass:[NSString class]])
-    {
-        if ([soundArg isEqualToString:@"true"])
-            notificationTypes |= UIRemoteNotificationTypeSound;
-    }
-    else if ([soundArg boolValue])
-        notificationTypes |= UIRemoteNotificationTypeSound;
-    
-    if ([alertArg isKindOfClass:[NSString class]])
-    {
-        if ([alertArg isEqualToString:@"true"])
-            notificationTypes |= UIRemoteNotificationTypeAlert;
-    }
-    else if ([alertArg boolValue])
-        notificationTypes |= UIRemoteNotificationTypeAlert;
-    
-    self.callback = [options objectForKey:@"ecb"];
-
-    if (notificationTypes == UIRemoteNotificationTypeNone)
-        NSLog(@"PushPlugin.register: Push notification type is set to none");
-
-    isInline = NO;
-
-    [[UIApplication sharedApplication] registerForRemoteNotificationTypes:notificationTypes];
 	
 	if (notificationMessage)			// if there is a pending startup notification
 		[self notificationReceived];	// go ahead and process it
@@ -110,10 +72,64 @@
         notificationTypes |= UIRemoteNotificationTypeSound;
     if ([self notificationTypeConfigured:alertArg])
         notificationTypes |= UIRemoteNotificationTypeAlert;
+    
+    self.callback = [options objectForKey:@"ecb"];
+    
+    if (notificationTypes == UIRemoteNotificationTypeNone)
+        NSLog(@"PushPlugin.register: Push notification type is set to none");
+    
+    isInline = NO;
+    
+    [[UIApplication sharedApplication] registerForRemoteNotificationTypes:notificationTypes];
 }
 
 - (void)iOS8Register:(NSDictionary *)options {
+    // This is necessary to build libraries with the iOS 7 runtime, that can execute iOS 8 methods.  When
+    // we switch to building libraries with Xcode 6, this can go away.
+    //
+    // >= iOS 8 notification types have to be NSUInteger, for backward compatibility with < iOS 8 build environments.
+    //
+    // UIUserNotificationTypes:
+    //   UIUserNotificationTypeNone    = 0,      // the application may not present any UI upon a notification being received
+    //   UIUserNotificationTypeBadge   = 1 << 0, // the application may badge its icon upon a notification being received
+    //   UIUserNotificationTypeSound   = 1 << 1, // the application may play a sound upon a notification being received
+    //   UIUserNotificationTypeAlert   = 1 << 2, // the application may display an alert upon a notification being received
+    NSSet *categories = nil;
+    NSUInteger notificationTypes = 0;
     
+    id badgeArg = [options objectForKey:@"badge"];
+    id soundArg = [options objectForKey:@"sound"];
+    id alertArg = [options objectForKey:@"alert"];
+    if ([self notificationTypeConfigured:badgeArg])
+        notificationTypes |= (1 << 0);
+    if ([self notificationTypeConfigured:soundArg])
+        notificationTypes |= (1 << 1);
+    if ([self notificationTypeConfigured:alertArg])
+        notificationTypes |= (1 << 2);
+    
+    self.callback = [options objectForKey:@"ecb"];
+    
+    if (notificationTypes == 0)
+        NSLog(@"PushPlugin.register: Push notification type is set to none");
+    
+    isInline = NO;
+    
+    Class userNotificationSettings = NSClassFromString(@"UIUserNotificationSettings");
+    NSMethodSignature *settingsForTypesSig = [userNotificationSettings methodSignatureForSelector:@selector(settingsForTypes:categories:)];
+    NSInvocation *settingsForTypesInv = [NSInvocation invocationWithMethodSignature:settingsForTypesSig];
+    [settingsForTypesInv setTarget:userNotificationSettings];
+    [settingsForTypesInv setSelector:@selector(settingsForTypes:categories:)];
+    [settingsForTypesInv setArgument:&notificationTypes atIndex:2];
+    [settingsForTypesInv setArgument:&categories atIndex:3];
+    [settingsForTypesInv invoke];
+    
+    CFTypeRef settingsForTypesRetVal;
+    [settingsForTypesInv getReturnValue:&settingsForTypesRetVal];
+    if (settingsForTypesRetVal)
+        CFRetain(settingsForTypesRetVal);
+    
+    [[UIApplication sharedApplication] performSelector:@selector(registerUserNotificationSettings:) withObject:(__bridge_transfer id)settingsForTypesRetVal];
+    [[UIApplication sharedApplication] performSelector:@selector(registerForRemoteNotifications)];
 }
 
 - (BOOL)notificationTypeConfigured:(id)notificationOption {
