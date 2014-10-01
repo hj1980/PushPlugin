@@ -48,6 +48,13 @@
 	self.callbackId = command.callbackId;
 
     NSMutableDictionary* options = [command.arguments objectAtIndex:0];
+    
+    // [UIApplication registerUserNotificationSettings:] is how iOS 8 and above registers for notifications.
+    if ([[UIApplication sharedApplication] respondsToSelector:@selector(registerUserNotificationSettings:)]) {
+        [self iOS8Register:options];
+    } else {
+        [self preiOS8Register:options];
+    }
 
     UIRemoteNotificationType notificationTypes = UIRemoteNotificationTypeNone;
     id badgeArg = [options objectForKey:@"badge"];
@@ -89,6 +96,38 @@
 	
 	if (notificationMessage)			// if there is a pending startup notification
 		[self notificationReceived];	// go ahead and process it
+}
+
+- (void)preiOS8Register:(NSDictionary *)options {
+    UIRemoteNotificationType notificationTypes = UIRemoteNotificationTypeNone;
+    id badgeArg = [options objectForKey:@"badge"];
+    id soundArg = [options objectForKey:@"sound"];
+    id alertArg = [options objectForKey:@"alert"];
+    
+    if ([self notificationTypeConfigured:badgeArg])
+        notificationTypes |= UIRemoteNotificationTypeBadge;
+    if ([self notificationTypeConfigured:soundArg])
+        notificationTypes |= UIRemoteNotificationTypeSound;
+    if ([self notificationTypeConfigured:alertArg])
+        notificationTypes |= UIRemoteNotificationTypeAlert;
+}
+
+- (void)iOS8Register:(NSDictionary *)options {
+    
+}
+
+- (BOOL)notificationTypeConfigured:(id)notificationOption {
+    if ([notificationOption isKindOfClass:[NSString class]]) {
+        if ([notificationOption isEqualToString:@"true"]) {
+            return YES;
+        }
+    }
+    
+    if ([notificationOption boolValue]) {
+        return YES;
+    }
+    
+    return NO;
 }
 
 /*
