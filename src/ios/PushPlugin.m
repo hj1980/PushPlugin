@@ -163,6 +163,15 @@
     [results setValue:token forKey:@"deviceToken"];
     
     #if !TARGET_IPHONE_SIMULATOR
+    
+    #if __IPHONE_OS_VERSION_MAX_ALLOWED < 80000
+    
+    // TODO: Ideally, you'd want to have a scheme where you override
+    // [[UIApplication sharedApplication].delegate application:didRegisterUserNotificationSettings:] for iOS 8 and
+    // above, and get the equivalent UIRemoteNotificationType values there (UIUserNotificationType).
+    // However, given that these values aren't currently utilized from this method, that's an exercise for
+    // another day.
+    
         // Get Bundle Info for Remote Registration (handy if you have more than one app)
         [results setValue:[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleDisplayName"] forKey:@"appName"];
         [results setValue:[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"] forKey:@"appVersion"];
@@ -198,6 +207,8 @@
         [results setValue:dev.name forKey:@"deviceName"];
         [results setValue:dev.model forKey:@"deviceModel"];
         [results setValue:dev.systemVersion forKey:@"deviceSystemVersion"];
+    
+    #endif
 
 		[self successWithMessage:[NSString stringWithFormat:@"%@", token]];
     #endif
