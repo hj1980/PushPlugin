@@ -52,45 +52,10 @@
     // [UIApplication registerUserNotificationSettings:] is how iOS 8 and above registers for notifications.
     if ([[UIApplication sharedApplication] respondsToSelector:@selector(registerUserNotificationSettings:)]) {
         [self iOS8Register:options];
-    } else {
-        [self preiOS8Register:options];
     }
 	
 	if (notificationMessage)			// if there is a pending startup notification
 		[self notificationReceived];	// go ahead and process it
-}
-
-- (void)preiOS8Register:(NSDictionary *)options {
-    UIRemoteNotificationType notificationTypes = UIRemoteNotificationTypeNone;
-
-    id badgeArg = [options objectForKey:@"badge"];
-    id soundArg = [options objectForKey:@"sound"];
-    id alertArg = [options objectForKey:@"alert"];
-
-    if ([self notificationTypeConfigured:badgeArg])
-        notificationTypes |= UIRemoteNotificationTypeBadge;
-    if ([self notificationTypeConfigured:soundArg])
-        notificationTypes |= UIRemoteNotificationTypeSound;
-    if ([self notificationTypeConfigured:alertArg])
-        notificationTypes |= UIRemoteNotificationTypeAlert;
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-        UserNotificationTypes |= UIUserNotificationTypeAlert;
-#endif
-    }
-
-    notificationTypes |= UIRemoteNotificationTypeNewsstandContentAvailability;
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-    UserNotificationTypes |= UIUserNotificationActivationModeBackground;
-#endif
-
-    self.callback = [options objectForKey:@"ecb"];
-    
-    if (notificationTypes == UIRemoteNotificationTypeNone)
-        NSLog(@"PushPlugin.register: Push notification type is set to none");
-    
-    isInline = NO;
-    
-    [[UIApplication sharedApplication] registerForRemoteNotificationTypes:notificationTypes];
 }
 
 - (void)iOS8Register:(NSDictionary *)options {
