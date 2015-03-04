@@ -48,58 +48,30 @@
 	self.callbackId = command.callbackId;
 
     NSMutableDictionary* options = [command.arguments objectAtIndex:0];
+    
+    // [UIApplication registerUserNotificationSettings:] is how iOS 8 and above registers for notifications.
+    if ([[UIApplication sharedApplication] respondsToSelector:@selector(registerUserNotificationSettings:)]) {
+        [self iOS8Register:options];
+    } else {
+        [self preiOS8Register:options];
+    }
+	
+	if (notificationMessage)			// if there is a pending startup notification
+		[self notificationReceived];	// go ahead and process it
+}
 
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-		UIUserNotificationType UserNotificationTypes = UIUserNotificationTypeNone;
-#endif
+- (void)preiOS8Register:(NSDictionary *)options {
     UIRemoteNotificationType notificationTypes = UIRemoteNotificationTypeNone;
 
     id badgeArg = [options objectForKey:@"badge"];
     id soundArg = [options objectForKey:@"sound"];
     id alertArg = [options objectForKey:@"alert"];
 
-    if ([badgeArg isKindOfClass:[NSString class]])
-    {
-        if ([badgeArg isEqualToString:@"true"]) {
-            notificationTypes |= UIRemoteNotificationTypeBadge;
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-            UserNotificationTypes |= UIUserNotificationTypeBadge;
-#endif
-        }
-    }
-    else if ([badgeArg boolValue]) {
+    if ([self notificationTypeConfigured:badgeArg])
         notificationTypes |= UIRemoteNotificationTypeBadge;
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-        UserNotificationTypes |= UIUserNotificationTypeBadge;
-#endif
-    }
-
-    if ([soundArg isKindOfClass:[NSString class]])
-    {
-        if ([soundArg isEqualToString:@"true"]) {
-            notificationTypes |= UIRemoteNotificationTypeSound;
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-            UserNotificationTypes |= UIUserNotificationTypeSound;
-#endif
-    }
-    }
-    else if ([soundArg boolValue]) {
+    if ([self notificationTypeConfigured:soundArg])
         notificationTypes |= UIRemoteNotificationTypeSound;
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-        UserNotificationTypes |= UIUserNotificationTypeSound;
-#endif
-    }
-
-    if ([alertArg isKindOfClass:[NSString class]])
-    {
-        if ([alertArg isEqualToString:@"true"]) {
-            notificationTypes |= UIRemoteNotificationTypeAlert;
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-            UserNotificationTypes |= UIUserNotificationTypeAlert;
-#endif
-    }
-    }
-    else if ([alertArg boolValue]) {
+    if ([self notificationTypeConfigured:alertArg])
         notificationTypes |= UIRemoteNotificationTypeAlert;
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
         UserNotificationTypes |= UIUserNotificationTypeAlert;
@@ -112,26 +84,76 @@
 #endif
 
     self.callback = [options objectForKey:@"ecb"];
-
+    
     if (notificationTypes == UIRemoteNotificationTypeNone)
         NSLog(@"PushPlugin.register: Push notification type is set to none");
-
+    
     isInline = NO;
+    
+    [[UIApplication sharedApplication] registerForRemoteNotificationTypes:notificationTypes];
+}
 
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000
-    if ([[UIApplication sharedApplication]respondsToSelector:@selector(registerUserNotificationSettings:)]) {
-        UIUserNotificationSettings *settings = [UIUserNotificationSettings settingsForTypes:UserNotificationTypes categories:nil];
-        [[UIApplication sharedApplication] registerUserNotificationSettings:settings];
-        [[UIApplication sharedApplication] registerForRemoteNotifications];
-    } else {
-    		[[UIApplication sharedApplication] registerForRemoteNotificationTypes:notificationTypes];
+- (void)iOS8Register:(NSDictionary *)options {
+    // This is necessary to build libraries with the iOS 7 runtime, that can execute iOS 8 methods.  When
+    // we switch to building libraries with Xcode 6, this can go away.
+    //
+    // >= iOS 8 notification types have to be NSUInteger, for backward compatibility with < iOS 8 build environments.
+    //
+    // UIUserNotificationTypes:
+    //   UIUserNotificationTypeNone    = 0,      // the application may not present any UI upon a notification being received
+    //   UIUserNotificationTypeBadge   = 1 << 0, // the application may badge its icon upon a notification being received
+    //   UIUserNotificationTypeSound   = 1 << 1, // the application may play a sound upon a notification being received
+    //   UIUserNotificationTypeAlert   = 1 << 2, // the application may display an alert upon a notification being received
+    NSSet *categories = nil;
+    NSUInteger notificationTypes = 0;
+    
+    id badgeArg = [options objectForKey:@"badge"];
+    id soundArg = [options objectForKey:@"sound"];
+    id alertArg = [options objectForKey:@"alert"];
+    if ([self notificationTypeConfigured:badgeArg])
+        notificationTypes |= (1 << 0);
+    if ([self notificationTypeConfigured:soundArg])
+        notificationTypes |= (1 << 1);
+    if ([self notificationTypeConfigured:alertArg])
+        notificationTypes |= (1 << 2);
+    
+    self.callback = [options objectForKey:@"ecb"];
+    
+    if (notificationTypes == 0)
+        NSLog(@"PushPlugin.register: Push notification type is set to none");
+    
+    isInline = NO;
+    
+    Class userNotificationSettings = NSClassFromString(@"UIUserNotificationSettings");
+    NSMethodSignature *settingsForTypesSig = [userNotificationSettings methodSignatureForSelector:@selector(settingsForTypes:categories:)];
+    NSInvocation *settingsForTypesInv = [NSInvocation invocationWithMethodSignature:settingsForTypesSig];
+    [settingsForTypesInv setTarget:userNotificationSettings];
+    [settingsForTypesInv setSelector:@selector(settingsForTypes:categories:)];
+    [settingsForTypesInv setArgument:&notificationTypes atIndex:2];
+    [settingsForTypesInv setArgument:&categories atIndex:3];
+    [settingsForTypesInv invoke];
+    
+    CFTypeRef settingsForTypesRetVal;
+    [settingsForTypesInv getReturnValue:&settingsForTypesRetVal];
+    if (settingsForTypesRetVal)
+        CFRetain(settingsForTypesRetVal);
+    
+    [[UIApplication sharedApplication] performSelector:@selector(registerUserNotificationSettings:) withObject:(__bridge_transfer id)settingsForTypesRetVal];
+    [[UIApplication sharedApplication] performSelector:@selector(registerForRemoteNotifications)];
+}
+
+- (BOOL)notificationTypeConfigured:(id)notificationOption {
+    if ([notificationOption isKindOfClass:[NSString class]]) {
+        if ([notificationOption isEqualToString:@"true"]) {
+            return YES;
+        }
     }
-#else
-		[[UIApplication sharedApplication] registerForRemoteNotificationTypes:notificationTypes];
-#endif
-
-	if (notificationMessage)			// if there is a pending startup notification
-		[self notificationReceived];	// go ahead and process it
+    
+    if ([notificationOption boolValue]) {
+        return YES;
+    }
+    
+    return NO;
 }
 
 /*
@@ -151,6 +173,15 @@
     [results setValue:token forKey:@"deviceToken"];
 
     #if !TARGET_IPHONE_SIMULATOR
+    
+    #if __IPHONE_OS_VERSION_MAX_ALLOWED < 80000
+    
+    // TODO: Ideally, you'd want to have a scheme where you override
+    // [[UIApplication sharedApplication].delegate application:didRegisterUserNotificationSettings:] for iOS 8 and
+    // above, and get the equivalent UIRemoteNotificationType values there (UIUserNotificationType).
+    // However, given that these values aren't currently utilized from this method, that's an exercise for
+    // another day.
+    
         // Get Bundle Info for Remote Registration (handy if you have more than one app)
         [results setValue:[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleDisplayName"] forKey:@"appName"];
         [results setValue:[[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleVersion"] forKey:@"appVersion"];
@@ -186,6 +217,8 @@
         [results setValue:dev.name forKey:@"deviceName"];
         [results setValue:dev.model forKey:@"deviceModel"];
         [results setValue:dev.systemVersion forKey:@"deviceSystemVersion"];
+    
+    #endif
 
 		[self successWithMessage:[NSString stringWithFormat:@"%@", token]];
     #endif
@@ -201,52 +234,44 @@
 
     if (notificationMessage && self.callback)
     {
-        NSMutableString *jsonStr = [NSMutableString stringWithString:@"{"];
-
-        [self parseDictionary:notificationMessage intoJSON:jsonStr];
-
-        if (isInline)
-        {
-            [jsonStr appendFormat:@"foreground:\"%d\"", 1];
+        NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
+        dict[@"event"] = @"message";
+        dict[@"payload"] = notificationMessage;
+        dict[@"foreground"] = [NSNumber numberWithBool:isInline];
+        if (isInline) {
             isInline = NO;
         }
-		else
-            [jsonStr appendFormat:@"foreground:\"%d\"", 0];
 
-        [jsonStr appendString:@"}"];
-
-        NSLog(@"Msg: %@", jsonStr);
-
-        NSString * jsCallBack = [NSString stringWithFormat:@"%@(%@);", self.callback, jsonStr];
+        NSString * jsCallBack = [NSString stringWithFormat:@"%@(%@);", self.callback, [PushPlugin JSONRepresentation:dict]];
         [self.webView stringByEvaluatingJavaScriptFromString:jsCallBack];
 
         self.notificationMessage = nil;
     }
 }
 
-// reentrant method to drill down and surface all sub-dictionaries' key/value pairs into the top level json
--(void)parseDictionary:(NSDictionary *)inDictionary intoJSON:(NSMutableString *)jsonString
-{
-    NSArray         *keys = [inDictionary allKeys];
-    NSString        *key;
-
-    for (key in keys)
-    {
-        id thisObject = [inDictionary objectForKey:key];
-
-        if ([thisObject isKindOfClass:[NSDictionary class]])
-            [self parseDictionary:thisObject intoJSON:jsonString];
-        else if ([thisObject isKindOfClass:[NSString class]])
-             [jsonString appendFormat:@"\"%@\":\"%@\",",
-              key,
-              [[[[inDictionary objectForKey:key]
-                stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
-                 stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]
-                 stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"]];
-        else {
-            [jsonString appendFormat:@"\"%@\":\"%@\",", key, [inDictionary objectForKey:key]];
-        }
++ (NSString*)JSONRepresentation:(id)obj {
+    NSString *result = nil;
+    
+    NSData *jsonData = [self JSONDataRepresentation:obj];
+    if (nil != jsonData) {
+        result = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
     }
+    
+    return result;
+}
+
++(NSData*)JSONDataRepresentation:(id)obj {
+    NSError *err = nil;
+    NSData *jsonData = nil;
+    
+    if (nil != obj) {
+        NSJSONWritingOptions options = 0;
+        jsonData = [NSJSONSerialization dataWithJSONObject:obj
+                                                   options:options
+                                                     error:&err
+                    ];
+    }
+    return  jsonData;
 }
 
 - (void)setApplicationIconBadgeNumber:(CDVInvokedUrlCommand *)command {
